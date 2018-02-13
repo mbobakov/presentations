@@ -194,7 +194,7 @@ In the out of -gcflags "-m -m" shows as:  _*slice-element-equals*_
 - Test your allocations in tests
 
 * Contact
-
+Presentation: [[https://github.com/mbobakov/presentations/tree/master/escape-analysis]]
 mbobakov at Telegram
 mbobakov at [[http://slack.golang-ru.com/][golang-ru Slack]]
 
