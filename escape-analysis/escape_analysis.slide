@@ -1,0 +1,201 @@
+Escape Analysis
+
+Mstislav Bobakov
+Golang developer at [[https://affise.com][Affise]]
+
+
+* me
+.background img/background.png
+Golang developer since go1.5
+DevOps -> developer
+tags: pprof, DevOps, GO GC
+
+
+* Agenda
+- Prelude
+- Golang memory management
+- Escape analysis(What, How, When)
+- Conclusion
+.background img/background.png
+
+* Prelude with one allocation
+.code prelude_test.go /SLIDE0/,/SLIDE0 END/
+.background img/background.png
+
+* Interfaced version
+.code prelude_test.go /SLIDE1/,/SLIDE1 END/
+.background img/background.png
+
+* Prelude
+.image img/fine_meme.png
+
+* Benchmarks
+.code prelude_test.go /SLIDE2/,/SLIDE2 END/
+.background img/background.png
+
+go test  -benchmem -run=none -bench Example1 -memprofile common.memout
+
+  BenchmarkExample1Ifaced-4 50000000   31.2 ns/op   16 B/op  1 allocs/op
+  BenchmarkExample1-4       2000000000  0.99 ns/op  0 B/op   0 allocs/op
+
+* Benchmarks
+.background img/background.png
+
+go tool pprof -alloc_space common.memout
+
+  Total: 753.01MB
+  ROUTINE ======================== github.com/mbobakov/goway-1.2/presentation.BenchmarkExample1Ifaced in /Users/mbobakov/dev/go/gopath/src/github.com/mbobakov/goway-1.2/presentation/prelude_test.go
+    753.01MB   753.01MB (flat, cum)   100% of Total
+          .          .     31:func BenchmarkExample1Ifaced(b *testing.B) {
+          .          .     32:   for i := 0; i < b.N; i++ {
+    753.01MB   753.01MB     33:           c := &click{id: "1"}
+          .          .     34:           storeDescriptionIfaced(c)
+          .          .     35:   }
+          .          .     36:}
+
+* Standard memory model
+.background img/background.png
+
+.image img/Classic_model_.png
+
+* Standard memory model disadvantages
+.background img/background.png
+
+- Concurrent access to the Heap
+- One stack == one state
+- Duplication(constans and instructions) for concurrency
+
+* Golang Memory Model
+.background img/background.png
+
+- each goroutine has its own stackframe
+- stack frames in the Heap
+- dynamic size for the stackframe(default: 2048)
+.caption Stackframe grows by allocate new, copy old to new, free old
+
+.image img/Golang_memory_model.png
+
+* Escape analysis
+.background img/background.png
+
+*Escape* *analysis* is the process that the compiler uses to determine the placement of values that are created by your program
+
+Stack allocation is cheap and heap allocation is expensive (!!!)
+
+Stack allocation requires that the lifetime and memory footprint of a variable can be determined at compile time (!!!)
+
+* Back to Example
+.background img/background.png
+
+Profiler (pprof) don't calculate stack allocations
+
+go tool pprof -alloc_space common.memout
+
+  Total: 753.01MB
+  ROUTINE ======================== github.com/mbobakov/goway-1.2/presentation.BenchmarkExample1Ifaced in /Users/mbobakov/dev/go/gopath/src/github.com/mbobakov/goway-1.2/presentation/prelude_test.go
+    753.01MB   753.01MB (flat, cum)   100% of Total
+          .          .     31:func BenchmarkExample1Ifaced(b *testing.B) {
+          .          .     32:   for i := 0; i < b.N; i++ {
+    753.01MB   753.01MB     33:           c := &click{id: "1"}
+          .          .     34:           storeDescriptionIfaced(c)
+          .          .     35:   }
+          .          .     36:}
+
+`c:=&click{id:"1"}` was allocated on the heap. But Why?
+
+* How to see
+.background img/background.png
+
+go tool compile -help
+
+  -m    print optimization decisions
+
+*-m* can be specified multiple times
+
+  go (build|test) -gcflags "-m -m" ...
+
+
+out:
+
+  ./prelude_test.go:25:31: leaking param: c
+  ./prelude_test.go:25:31:        from c.description() (receiver in indirect call) at ./prelude_test.go:26:15
+  ./prelude_test.go:34:25: c escapes to heap
+  ./prelude_test.go:34:25:        from c (passed to call[argument escapes]) at ./prelude_test.go:34:25
+  ./prelude_test.go:33:19: &click literal escapes to heap
+  ./prelude_test.go:33:19:        from c (assigned) at ./prelude_test.go:33:5
+  ./prelude_test.go:33:19:        from c (interface-converted) at ./prelude_test.go:34:25
+  ./prelude_test.go:33:19:        from c (passed to call[argument escapes]) at ./prelude_test.go:34:25
+
+* Escape analysis flaws
+.background img/background.png
+.link https://www.ardanlabs.com/blog/2018/01/escape-analysis-flaws.html  William Kennedy. Escape analysis flaws
+.link https://docs.google.com/document/d/1CxgUBPlx9iJzkz9JWkb6tIpTe5q32QDmz8l0BouG0Cw/edit#heading=h.llaiaboyeyo3 Dmitry Vyukov. Go Escape Analysis Flaws
+
+- Indirection calls(incl. Interfaces, Closures)
+- Maps and slice
+- Unknown
+
+* Indirection flaws
+.background img/background.png
+
+- Indirection assignment
+
+In the out of -gcflags "-m -m" shows as: _*(star-dot-equals)*_
+
+.code indirection_test.go /BenchmarkIndirectAssign/,/^}/
+
+* Indirection flaws
+.background img/background.png
+
+- Indirection calls
+
+In the out of -gcflags "-m -m" shows as:  _*(call part)*_
+
+.code indirection_test.go /add\(f/,/^}/
+
+
+* Indirection flaws
+.background img/background.png
+
+- Closures
+
+In the out of -gcflags "-m -m" shows as:  _*capturing by value:*_
+
+.code indirection_test.go /BenchmarkClosure/,/ uberDescription/
+
+* Indirection flaws
+.background img/background.png
+
+- Interfaces
+
+In the out of -gcflags "-m -m" shows as:  _*interface-converted*_
+
+.code prelude_test.go /SLIDE1 OMIT/,/ SLIDE1 END OMIT/
+.code indirection_test.go /BenchmarkIfaced/,/^}/
+
+* Maps and slices
+.background img/background.png
+
+- map
+In the out of -gcflags "-m -m" shows as:  _*value of map put*_
+
+.code mapsAndSlices_test.go /BenchmarkMap/,/^}/
+
+- slice
+In the out of -gcflags "-m -m" shows as:  _*slice-element-equals*_
+
+.code mapsAndSlices_test.go /BenchmarkSlice/,/^}/
+
+* Conclusion
+.background img/background.png
+
+- In 95% if you have performance problem - it's too many allocations
+- "don't guess - measure"
+- Test your allocations in tests
+
+* Contact
+
+mbobakov at Telegram
+mbobakov at [[http://slack.golang-ru.com/][golang-ru Slack]]
+
+[[mailto://join@affise.com][Join Affise squad]]
