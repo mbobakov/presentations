@@ -195,6 +195,7 @@ In the out of -gcflags "-m -m" shows as:  _*slice-element-equals*_
 
 * Contact
 Presentation: [[https://github.com/mbobakov/presentations/tree/master/escape-analysis]]
+SpeakerDeck: [[https://speakerdeck.com/mbobakov/golang-escape-analysis]]
 mbobakov at Telegram
 mbobakov at [[http://slack.golang-ru.com/][golang-ru Slack]]
 
